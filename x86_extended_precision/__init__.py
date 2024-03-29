@@ -27,7 +27,7 @@ def deconstruct_extended_precision(
     byteorder: Literal["little", "big"] = "little",
 ) -> tuple[int, int, int]:
     if len(input_bytes) != 10:  # noqa: PLR2004
-        raise Exception("Expected 10 bytes, got %d" % len(bytes))  # noqa: TRY002
+        raise ValueError("Expected 10 bytes, got %d" % len(bytes))
 
     b = int.from_bytes(input_bytes, byteorder=byteorder)
 
@@ -61,8 +61,11 @@ def double_from_extended_precision_bytes(
     m_double = m >> MANTISSA_OFFSET
 
     # Ensure that exponent fits into a 64 bit double (signed zero is implicit; no accidental conversion to infinity/NaN)
-    if not (0 <= e_double < bitmask(DOUBLE_EXPONENT_LENGTH)):
-        msg = f"Exponent { e } does not fit into 64 bit double"
+    if e_double < 0:
+        msg = f"Exponent { e } too small to convert to float"
+        raise ValueError(msg)
+    if e_double >= bitmask(DOUBLE_EXPONENT_LENGTH):
+        msg = f"Exponent { e } too large to convert to float"
         raise ValueError(msg)
 
     # Log a warning if we loose precision, as we have fewer bits for the mantissa
