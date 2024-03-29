@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import struct
+from math import ceil
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -22,22 +23,61 @@ def bitmask(length: int) -> int:
     return (1 << length) - 1
 
 
+def get_byte_count(exponent_length: int, mantissa_length: int) -> int:
+    return ceil((1 + exponent_length + mantissa_length) / 8)
+
+
+def deconstruct_floating_point(
+    input_bytes: bytes,
+    *,
+    exponent_length: int,
+    mantissa_length: int,
+    byteorder: Literal["little", "big"] = "little",
+) -> tuple[int, int, int]:
+    byte_count = get_byte_count(exponent_length, mantissa_length)
+    if len(input_bytes) != byte_count:
+        msg = f"Expected { byte_count } bytes, got f{ len(input_bytes) }"
+        raise ValueError(msg)
+
+    b = int.from_bytes(input_bytes, byteorder=byteorder)
+
+    m = b & bitmask(mantissa_length)
+    b >>= mantissa_length
+    e = b & bitmask(exponent_length)
+    b >>= exponent_length
+    s = b
+
+    return s, e, m
+
+
+def construct_floating_point(
+    s: int,
+    e: int,
+    m: int,
+    *,
+    exponent_length: int,
+    mantissa_length: int,
+    byteorder: Literal["little", "big"] = "little",
+) -> bytes:
+    res = s
+    res <<= exponent_length
+    res |= e
+    res <<= mantissa_length
+    res |= m
+    byte_count = get_byte_count(exponent_length, mantissa_length)
+    return res.to_bytes(byte_count, byteorder=byteorder)
+
+
 def deconstruct_extended_precision(
     input_bytes: bytes,
     byteorder: Literal["little", "big"] = "little",
 ) -> tuple[int, int, int]:
-    if len(input_bytes) != 10:  # noqa: PLR2004
-        raise ValueError("Expected 10 bytes, got %d" % len(bytes))
-
-    b = int.from_bytes(input_bytes, byteorder=byteorder)
-
-    m = b & bitmask(EXTENDED_MANTISSA_LENGTH)
-    b >>= EXTENDED_MANTISSA_LENGTH
-    e = b & bitmask(EXTENDED_EXPONENT_LENGTH)
-    b >>= EXTENDED_EXPONENT_LENGTH
-    s = b
-
-    return s, e, m
+    return deconstruct_floating_point(
+        input_bytes,
+        exponent_length=EXTENDED_EXPONENT_LENGTH,
+        mantissa_length=EXTENDED_MANTISSA_LENGTH,
+        byteorder=byteorder,
+    )
 
 
 def double_from_extended_precision_bytes(
@@ -73,10 +113,12 @@ def double_from_extended_precision_bytes(
         logger.warning("Loosing precision during conversion to double")
 
     # Assemble resulting double
-    double = s_double
-    double <<= DOUBLE_EXPONENT_LENGTH
-    double |= e_double
-    double <<= DOUBLE_MANTISSA_LENGTH
-    double |= m_double
-
-    return struct.unpack("<d", double.to_bytes(8, byteorder="little"))[0]
+    double_bytes = construct_floating_point(
+        s_double,
+        e_double,
+        m_double,
+        exponent_length=DOUBLE_EXPONENT_LENGTH,
+        mantissa_length=DOUBLE_MANTISSA_LENGTH,
+        byteorder="little",
+    )
+    return struct.unpack("<d", double_bytes)[0]
