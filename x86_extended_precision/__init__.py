@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import struct
 from math import ceil
 from typing import Literal
@@ -15,7 +16,6 @@ EXTENDED_EXPONENT_LENGTH = 15
 EXTENDED_EXPONENT_BIAS = 16383
 EXTENDED_MANTISSA_LENGTH = 64
 
-BIAS_OFFSET = EXTENDED_EXPONENT_BIAS - DOUBLE_EXPONENT_BIAS
 MANTISSA_OFFSET = EXTENDED_MANTISSA_LENGTH - DOUBLE_MANTISSA_LENGTH - 1
 
 
@@ -84,23 +84,18 @@ def double_from_extended_precision_bytes(
     input_bytes: bytes,
     byteorder: Literal["little", "big"] = "little",
 ) -> float:
-    s, e, m = deconstruct_extended_precision(input_bytes, byteorder)
+    s, e_extended, m = deconstruct_extended_precision(input_bytes, byteorder)
+    e = e_extended - EXTENDED_EXPONENT_BIAS
 
-    # TODO: Handle special cases
+    # Handle special cases
     # https://en.wikipedia.org/wiki/Extended_precision#:~:text=x86%20Extended%20Precision%20value
-
-    # Ensure that normalized form is used and drop the bit, as it is implicit/hidden for double-precision formats
-    if (m >> (EXTENDED_MANTISSA_LENGTH - 1)) != 0x01:
-        msg = "Non-normalized values are not supported"
-        raise NotImplementedError(msg)
-    m = m & bitmask(EXTENDED_MANTISSA_LENGTH - 1)
-
-    # Convert components to double
-    s_double = s
-    e_double = e - BIAS_OFFSET
-    m_double = m >> MANTISSA_OFFSET
+    if e_extended == 0:
+        return _handle_extended_precision_exponent_zero(s, m)
+    if e_extended == bitmask(EXTENDED_EXPONENT_LENGTH):
+        return _handle_extended_precision_exponent_one(s, m)
 
     # Ensure that exponent fits into a 64 bit double (signed zero is implicit; no accidental conversion to infinity/NaN)
+    e_double = e + DOUBLE_EXPONENT_BIAS
     if e_double < 0:
         msg = f"Exponent { e } too small to convert to float"
         raise ValueError(msg)
@@ -108,13 +103,20 @@ def double_from_extended_precision_bytes(
         msg = f"Exponent { e } too large to convert to float"
         raise ValueError(msg)
 
+    # Ensure that normalized form is used and drop the bit, as it is implicit/hidden for double-precision formats
+    if (m >> (EXTENDED_MANTISSA_LENGTH - 1)) != 0x01:
+        msg = "Non-normalized values are not supported"
+        raise NotImplementedError(msg)
+    m = m & bitmask(EXTENDED_MANTISSA_LENGTH - 1)
+    m_double = m >> MANTISSA_OFFSET
+
     # Log a warning if we loose precision, as we have fewer bits for the mantissa
     if m & bitmask(MANTISSA_OFFSET) > 0:
         logger.warning("Loosing precision during conversion to double")
 
     # Assemble resulting double
     double_bytes = construct_floating_point(
-        s_double,
+        s,
         e_double,
         m_double,
         exponent_length=DOUBLE_EXPONENT_LENGTH,
@@ -122,3 +124,45 @@ def double_from_extended_precision_bytes(
         byteorder="little",
     )
     return struct.unpack("<d", double_bytes)[0]
+
+
+def _handle_extended_precision_exponent_zero(s: int, m: int) -> float:
+    bit_63 = m >> (EXTENDED_MANTISSA_LENGTH - 1)
+    bits_62_0 = m & bitmask(EXTENDED_MANTISSA_LENGTH - 1)
+    if bit_63 == 0:
+        if bits_62_0 == 0:
+            # Signed Zero
+            return -0.0 if s else 0.0
+        # Denormal
+        msg = "Denormal not implemented"
+        raise NotImplementedError(msg)
+    # Pseudo Denormal
+    msg = "Pseudo Denormal not implemented"
+    raise NotImplementedError(msg)
+
+
+def _handle_extended_precision_exponent_one(s: int, m: int) -> float:
+    bits_63_62 = m >> (EXTENDED_MANTISSA_LENGTH - 2)
+    bits_61_0 = m & bitmask(EXTENDED_MANTISSA_LENGTH - 2)
+    if bits_63_62 == 0b00:
+        if bits_61_0 == 0:
+            # Pseudo-Infinity
+            return -math.inf if s else math.inf
+        # Pseudo Not a Number
+        return math.nan
+    if bits_63_62 == 0b01:
+        # Pseudo Not a Number
+        return math.nan
+    if bits_63_62 == 0b10:  # noqa: PLR2004
+        if bits_61_0 == 0:
+            # Infinity
+            return -math.inf if s else math.inf
+        # Not a Number
+        return math.nan
+    if bits_61_0 == 0:
+        # Floating-point Indefinite
+        msg = "Floating-point Indefinite not supported by float"
+        raise ValueError(msg)
+    # Quiet Not a Number
+    msg = "Quiet Not a Number not supported by float"
+    raise ValueError(msg)

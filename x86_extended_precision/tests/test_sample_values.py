@@ -2,6 +2,7 @@ from x86_extended_precision import double_from_extended_precision_bytes
 
 
 def test_sample_values() -> None:
+    assert double_from_extended_precision_bytes(b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00") == 0.0
     assert double_from_extended_precision_bytes(b"\x00\x68\x66\x66\x66\x66\x66\x8a\x04\x40") == 34.6
     assert double_from_extended_precision_bytes(b"\x00\x68\x66\x66\x66\x66\x66\x86\x01\x40") == 4.2
     assert double_from_extended_precision_bytes(b"\x00\x00\x00\x00\x00\x00\x00\x8c\x04\x40") == 35.0

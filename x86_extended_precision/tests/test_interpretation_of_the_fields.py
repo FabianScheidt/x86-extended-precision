@@ -1,0 +1,84 @@
+import math
+
+import pytest
+
+from x86_extended_precision.tests.utils import parse_extended
+
+
+def test_signed_zero() -> None:
+    e1 = "0 000000000000000 0000000000000000000000000000000000000000000000000000000000000000"
+    e2 = "1 000000000000000 0000000000000000000000000000000000000000000000000000000000000000"
+    assert parse_extended(e1) == 0.0
+    assert parse_extended(e2) == -0.0
+    assert math.copysign(1.0, parse_extended(e1)) == 1.0
+    assert math.copysign(1.0, parse_extended(e2)) == -1.0
+
+
+@pytest.mark.skip(reason="not implemented")
+def test_denormal() -> None:
+    e1 = "0 000000000000000 0100000000000000000000000000000000000000000000000000000000000000"
+    assert parse_extended(e1) == 0.5
+
+
+@pytest.mark.skip(reason="not implemented")
+def test_pseudo_denormal() -> None:
+    e1 = "0 000000000000000 1100000000000000000000000000000000000000000000000000000000000000"
+    assert parse_extended(e1) == 1.5
+
+
+def test_pseudo_infinity() -> None:
+    e1 = "0 111111111111111 0000000000000000000000000000000000000000000000000000000000000000"
+    e2 = "1 111111111111111 0000000000000000000000000000000000000000000000000000000000000000"
+    assert math.isinf(parse_extended(e1))
+    assert parse_extended(e1) > 0.0
+    assert math.isinf(parse_extended(e2))
+    assert parse_extended(e2) < 0.0
+
+
+def test_pseudo_nan_1() -> None:
+    e1 = "0 111111111111111 0010000000000000000000000000000000000000000000000000000000000000"
+    e2 = "0 111111111111111 0000000000100000000010000000000000000000000001000000000000000000"
+    assert math.isnan(parse_extended(e1))
+    assert math.isnan(parse_extended(e2))
+
+
+def test_pseudo_nan_2() -> None:
+    e1 = "0 111111111111111 0100000000000000000000000000000000000000000000000000000000000000"
+    e2 = "1 111111111111111 0100000000000000000000000000000000000000000000000000000000000000"
+    e3 = "0 111111111111111 0100000000100000000010000000000000000000000001000000000000000000"
+    assert math.isnan(parse_extended(e1))
+    assert math.isnan(parse_extended(e2))
+    assert math.isnan(parse_extended(e3))
+
+
+def test_infinity() -> None:
+    e1 = "0 111111111111111 1000000000000000000000000000000000000000000000000000000000000000"
+    e2 = "1 111111111111111 1000000000000000000000000000000000000000000000000000000000000000"
+    assert math.isinf(parse_extended(e1))
+    assert parse_extended(e1) > 0.0
+    assert math.isinf(parse_extended(e2))
+    assert parse_extended(e2) < 0.0
+
+
+def test_nan() -> None:
+    e1 = "0 111111111111111 1010000000000000000000000000000000000000000000000000000000000000"
+    e2 = "1 111111111111111 1010000000000000000000000000000000000000000000000000000000000000"
+    e3 = "1 111111111111111 1000000000000000010000000000000000000000000000000000010000000000"
+    assert math.isnan(parse_extended(e1))
+    assert math.isnan(parse_extended(e2))
+    assert math.isnan(parse_extended(e3))
+
+
+def test_floating_point_indefinite() -> None:
+    e1 = "0 111111111111111 1100000000000000000000000000000000000000000000000000000000000000"
+    with pytest.raises(ValueError, match="not supported by float"):
+        parse_extended(e1)
+
+
+def test_quiet_nan() -> None:
+    e1 = "0 111111111111111 1110000000000000000000000000000000000000000000000000000000000000"
+    e2 = "0 111111111111111 1100000000000000000000000100000000000000000000000000000000000000"
+    with pytest.raises(ValueError, match="not supported by float"):
+        parse_extended(e1)
+    with pytest.raises(ValueError, match="not supported by float"):
+        parse_extended(e2)
